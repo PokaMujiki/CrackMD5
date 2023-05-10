@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 public class ManagerService {
     private static final Logger logger = LogManager.getLogger(ManagerService.class);
     private static final int TIMEOUT = 20; // seconds
-    private static final String WORKER_CRACK_ENDPOINT = "http://localhost:8081/internal/api/worker/hash/crack/task";
+    private static final String WORKER_CRACK_ENDPOINT = "http://worker:8081/internal/api/worker/hash/crack/task";
     private final ConcurrentHashMap<String, Task> taskStatuses = new ConcurrentHashMap<>();
     private final CrackHashManagerRequest.Alphabet alphabet = new CrackHashManagerRequest.Alphabet();
 

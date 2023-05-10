@@ -1,0 +1,10 @@
+services:
+  manager:
+    build: ./Manager
+    container_name: crack-md5-manager
+    ports:
+      - "8080:8080"
+
+  worker:
+    container_name: crack-md5-worker
+    build: ./Worker
