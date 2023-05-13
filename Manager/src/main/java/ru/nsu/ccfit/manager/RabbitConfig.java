@@ -3,7 +3,6 @@ package ru.nsu.ccfit.manager;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2XmlMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,18 +52,18 @@ public class RabbitConfig {
     }
 
     @Bean
-    public Binding managerRequestBinding() {
+    public Binding managerRequestBinding(DirectExchange exchange, Queue managerRequestQueue) {
         return BindingBuilder
-                .bind(managerRequestQueue())
-                .to(exchange())
+                .bind(managerRequestQueue)
+                .to(exchange)
                 .with(managerRequestRoutingKey);
     }
 
     @Bean
-    public Binding workerResponseBinding() {
+    public Binding workerResponseBinding(DirectExchange exchange, Queue workerResponseQueue) {
         return BindingBuilder
-                .bind(workerResponseQueue())
-                .to(exchange())
+                .bind(workerResponseQueue)
+                .to(exchange)
                 .with(workerResponseRoutingKey);
     }
 
@@ -81,13 +80,6 @@ public class RabbitConfig {
     @Bean
     public MessageConverter converter() {
         return new Jackson2XmlMessageConverter();
-    }
-
-    @Bean
-    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
-        RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
-        rabbitTemplate.setMessageConverter(converter());
-        return rabbitTemplate;
     }
 }
 

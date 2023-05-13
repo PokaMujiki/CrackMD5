@@ -26,12 +26,31 @@ public class ManagerService {
     private final ConcurrentHashMap<String, Task> taskStatuses = new ConcurrentHashMap<>();
     private final CrackHashManagerRequest.Alphabet alphabet = new CrackHashManagerRequest.Alphabet();
 
+    private static final String WORKERS_AMOUNT_ENV_VAR_NAME = "WORKERS_AMOUNT";
+    private static final int DEFAULT_WORKERS_AMOUNT = 1;
+    private int workersAmount;
+
     public ManagerService() {
         alphabet.getSymbols().addAll(Arrays.asList(
                 "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
                 "a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
                 "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",
                 "u", "v", "w", "x", "y", "z"));
+
+        try {
+            var workersAmountString =  System.getenv(WORKERS_AMOUNT_ENV_VAR_NAME);
+
+            if (workersAmountString == null) {
+                throw new IllegalArgumentException(String.format("No %s env var", WORKERS_AMOUNT_ENV_VAR_NAME));
+            }
+
+            workersAmount = Integer.parseInt(workersAmountString);
+        }
+        catch (IllegalArgumentException e) {
+            workersAmount = DEFAULT_WORKERS_AMOUNT;
+            logger.error("Error getting {}, manager will set it as {}", WORKERS_AMOUNT_ENV_VAR_NAME, workersAmount);
+            logger.error(e);
+        }
     }
 
     private boolean isMD5(String hash) {
@@ -60,25 +79,42 @@ public class ManagerService {
         var requestId = UUID.randomUUID();
         var requestIdString = requestId.toString();
 
-        var managerRequest = new CrackHashManagerRequest();
-        managerRequest.setHash(hash);
-        managerRequest.setMaxLength(maxLength);
-        managerRequest.setAlphabet(alphabet);
-        managerRequest.setRequestId(requestIdString);
+        for (int i = 0; i < workersAmount; i++) {
+            var managerRequest = new CrackHashManagerRequest();
+            managerRequest.setHash(hash);
+            managerRequest.setMaxLength(maxLength);
+            managerRequest.setAlphabet(alphabet);
+            managerRequest.setRequestId(requestIdString);
+            managerRequest.setPartCount(workersAmount);
+            managerRequest.setPartNumber(i);
+
+            messageProducer.sendMessage(managerRequest);
+        }
 
         taskStatuses.put(requestIdString, new Task(TaskStatus.IN_PROGRESS));
-
-        messageProducer.sendMessage(managerRequest);
 
         return requestIdString;
     }
 
     public void processWorkerResponse(CrackHashWorkerResponse response) {
         logger.info("Got response from worker with task {}", response.getRequestId());
-        logger.info("{} results:", response.getRequestId());
+        logger.info("{} results:", response.getAnswers());
         logger.info(response.getAnswers().getWords());
+
+        // todo: task may be null
         var task = taskStatuses.get(response.getRequestId());
-        task.setStatus(TaskStatus.READY);
-        task.getData().addAll(response.getAnswers().getWords());
+
+        if (!task.getFinishedParts().contains(response.getPartNumber())) {
+            task.getFinishedParts().add(response.getPartNumber());
+            task.getData().addAll(response.getAnswers().getWords());
+        }
+        else {
+            logger.warn("Duplicate task result for request {}, not adding it", response.getRequestId());
+        }
+
+        if (task.getFinishedParts().size() == workersAmount) {
+            task.setStatus(TaskStatus.READY);
+            logger.info("Finished task with UUID {}, results: {}", response.getRequestId(), task.getData());
+        }
     }
 }

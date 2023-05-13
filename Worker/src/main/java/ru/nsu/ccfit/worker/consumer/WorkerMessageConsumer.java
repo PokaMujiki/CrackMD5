@@ -18,9 +18,9 @@ public class WorkerMessageConsumer {
     @Autowired
     private WorkerMessageProducer workerProducer;
 
-    @RabbitListener(queues={"${rabbitmq.manager.request.queue.name}"})
+    @RabbitListener(queues = {"${rabbitmq.manager.request.queue.name}"}, containerFactory = "rabbitListenerContainerFactory")
     public void consume(CrackHashManagerRequest request) {
-        logger.info("Received message: {}", request);
+        logger.info("Received message with request id: {}, part number {}", request.getRequestId(), request.getPartNumber());
         var result = workerService.crackHash(request);
         workerProducer.sendMessage(result);
     }

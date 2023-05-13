@@ -23,6 +23,7 @@ public class WorkerMessageProducer {
 
     public void sendMessage(CrackHashWorkerResponse response) {
         rabbitTemplate.convertAndSend(exchangeName, routingKey, response);
-        logger.info("Sent answer queue for manager: {}", response);
+        logger.info("Sent answer queue for manager, request id: {}, part number: {}",
+                response.getRequestId(), response.getPartNumber());
     }
 }

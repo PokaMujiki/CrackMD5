@@ -1,6 +1,7 @@
 package ru.nsu.ccfit.worker;
 
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -38,6 +39,8 @@ public class RabbitConfig {
     @Value("${spring.rabbitmq.password}")
     private String password;
 
+    private static final int DEFAULT_PREFETCH = 1;
+
     @Bean
     public Queue managerRequestQueue() {
         return new Queue(managerRequestQueueName, true, false, false);
@@ -54,18 +57,18 @@ public class RabbitConfig {
     }
 
     @Bean
-    public Binding managerRequestBinding() {
+    public Binding managerRequestBinding(DirectExchange exchange, Queue managerRequestQueue) {
         return BindingBuilder
-                .bind(managerRequestQueue())
-                .to(exchange())
+                .bind(managerRequestQueue)
+                .to(exchange)
                 .with(managerRequestRoutingKey);
     }
 
     @Bean
-    public Binding workerResponseBinding() {
+    public Binding workerResponseBinding(DirectExchange exchange, Queue workerResponseQueue) {
         return BindingBuilder
-                .bind(workerResponseQueue())
-                .to(exchange())
+                .bind(workerResponseQueue)
+                .to(exchange)
                 .with(workerResponseRoutingKey);
     }
 
@@ -89,6 +92,15 @@ public class RabbitConfig {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(converter());
         return rabbitTemplate;
+    }
+
+    @Bean
+    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(ConnectionFactory connectionFactory, MessageConverter converter) {
+        var factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setPrefetchCount(DEFAULT_PREFETCH);
+        factory.setMessageConverter(converter);
+        return factory;
     }
 }
 
