@@ -1,36 +1,55 @@
 package ru.nsu.ccfit.manager.service;
 
+import com.mongodb.client.FindIterable;
+import jakarta.xml.bind.JAXBContext;
+import jakarta.xml.bind.JAXBException;
+import jakarta.xml.bind.Marshaller;
+import jakarta.xml.bind.Unmarshaller;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.bson.Document;
+import org.springframework.amqp.AmqpException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import ru.nsu.ccfit.manager.exception.RabbitUnavailable;
 import ru.nsu.ccfit.manager.producer.ManagerMessageProducer;
 import ru.nsu.ccfit.manager.models.Task;
 import ru.nsu.ccfit.manager.models.TaskStatus;
 import ru.nsu.ccfit.manager.exception.NoSuchTask;
 import ru.nsu.ccfit.manager.exception.NotMD5Hash;
+import ru.nsu.ccfit.manager.repository.ActiveRequestsRepository;
+import ru.nsu.ccfit.manager.repository.TaskRepository;
 import ru.nsu.ccfit.schema.crack_hash_request.CrackHashManagerRequest;
 import ru.nsu.ccfit.schema.crack_hash_response.CrackHashWorkerResponse;
 
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.util.Arrays;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
 public class ManagerService {
-    @Autowired
-    private ManagerMessageProducer messageProducer;
+    private final ManagerMessageProducer messageProducer;
+    private final ActiveRequestsRepository activeRequestsRepository;
+    private final TaskRepository taskRepository;
     private static final Logger logger = LogManager.getLogger(ManagerService.class);
-    private final ConcurrentHashMap<String, Task> taskStatuses = new ConcurrentHashMap<>();
     private final CrackHashManagerRequest.Alphabet alphabet = new CrackHashManagerRequest.Alphabet();
 
     private static final String WORKERS_AMOUNT_ENV_VAR_NAME = "WORKERS_AMOUNT";
     private static final int DEFAULT_WORKERS_AMOUNT = 1;
     private int workersAmount;
+    private Marshaller marshaller;
+    private Unmarshaller unmarshaller;
 
-    public ManagerService() {
+    @Autowired
+    public ManagerService(ManagerMessageProducer messageProducer, ActiveRequestsRepository activeRequestsRepository, TaskRepository taskRepository) {
+        this.messageProducer = messageProducer;
+        this.activeRequestsRepository = activeRequestsRepository;
+        this.taskRepository = taskRepository;
+
         alphabet.getSymbols().addAll(Arrays.asList(
                 "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
                 "a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
@@ -51,6 +70,20 @@ public class ManagerService {
             logger.error("Error getting {}, manager will set it as {}", WORKERS_AMOUNT_ENV_VAR_NAME, workersAmount);
             logger.error(e);
         }
+
+        try {
+            var context = JAXBContext.newInstance(CrackHashManagerRequest.class);
+
+            var xmlMarshaller = context.createMarshaller();
+            xmlMarshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, true);
+            this.marshaller = xmlMarshaller;
+
+            this.unmarshaller = context.createUnmarshaller();
+        }
+        catch (JAXBException e) {
+            logger.error("Unable to create marshaller/unmarshaller to save/extract active requests to/from db");
+            logger.error(e.getMessage());
+        }
     }
 
     private boolean isMD5(String hash) {
@@ -61,10 +94,10 @@ public class ManagerService {
     }
 
     public Task getTaskStatus(String taskId) throws NoSuchTask {
-        if (taskId == null || !taskStatuses.containsKey(taskId)) {
+        if (taskId == null || taskRepository.get(taskId) == null) {
             throw new NoSuchTask(String.format("Task with UUID %s is not found", taskId));
         }
-        return taskStatuses.get(taskId);
+        return taskRepository.get(taskId);
     }
 
     public String crackHash(String hash, int maxLength) throws NotMD5Hash {
@@ -88,12 +121,36 @@ public class ManagerService {
             managerRequest.setPartCount(workersAmount);
             managerRequest.setPartNumber(i);
 
-            messageProducer.sendMessage(managerRequest);
+            try {
+                messageProducer.sendRequest(managerRequest);
+            }
+            catch (RabbitUnavailable e) {
+                saveActiveRequest(managerRequest);
+            }
         }
 
-        taskStatuses.put(requestIdString, new Task(TaskStatus.IN_PROGRESS));
+        // todo change logic
+        var task = new Task(TaskStatus.IN_PROGRESS);
+        taskRepository.insert(requestIdString, task);
 
         return requestIdString;
+    }
+
+    public String crackHashManagerRequest2Xml(CrackHashManagerRequest request) throws JAXBException {
+        var stringWriter = new StringWriter();
+        marshaller.marshal(request, stringWriter);
+        return stringWriter.toString();
+    }
+
+    public void saveActiveRequest(CrackHashManagerRequest request) {
+        try {
+            var xmlRequest = crackHashManagerRequest2Xml(request);
+            activeRequestsRepository.save(xmlRequest);
+        }
+        catch (JAXBException e) {
+            logger.error("Unable to convert manager request to xml for saving in db,{} requests will not be saved", request.getRequestId());
+            logger.error(e.getMessage());
+        }
     }
 
     public void processWorkerResponse(CrackHashWorkerResponse response) {
@@ -101,20 +158,49 @@ public class ManagerService {
         logger.info("{} results:", response.getAnswers());
         logger.info(response.getAnswers().getWords());
 
-        // todo: task may be null
-        var task = taskStatuses.get(response.getRequestId());
+        var task = taskRepository.get(response.getRequestId());
 
         if (!task.getFinishedParts().contains(response.getPartNumber())) {
             task.getFinishedParts().add(response.getPartNumber());
             task.getData().addAll(response.getAnswers().getWords());
+
+            if (task.getFinishedParts().size() == workersAmount) {
+                task.setStatus(TaskStatus.READY);
+                logger.info("Finished task with UUID {}, results: {}", response.getRequestId(), task.getData());
+            }
+
+            taskRepository.insert(response.getRequestId(), task);
         }
         else {
             logger.warn("Duplicate task result for request {}, not adding it", response.getRequestId());
         }
+    }
 
-        if (task.getFinishedParts().size() == workersAmount) {
-            task.setStatus(TaskStatus.READY);
-            logger.info("Finished task with UUID {}, results: {}", response.getRequestId(), task.getData());
-        }
+    @Scheduled(fixedDelay = 15000)
+    public void trySendRequestsAgain() {
+        FindIterable<Document> tasks = activeRequestsRepository.findAll();
+        tasks.forEach(task -> {
+            String xml = (String) task.get(ActiveRequestsRepository.REQUEST_PAYLOAD_FIELD_NAME);
+            try {
+                var reader = new StringReader(xml);
+                CrackHashManagerRequest request = (CrackHashManagerRequest) unmarshaller.unmarshal(reader);
+
+                logger.info("Trying send request {} with par number {} again", request.getRequestId(), request.getPartNumber());
+                messageProducer.sendRequest(request);
+
+                activeRequestsRepository.delete(task);
+                logger.info("Successfully sent request");
+            }
+            catch (AmqpException e) {
+                logger.error("Unable to send message again: {}", xml);
+            }
+            catch (JAXBException e) {
+                logger.error("Unable to unmarshall xml from database to ManagerRequest format, " +
+                        "this record will be deleted from database and task with this part number will be lost");
+                activeRequestsRepository.delete(task);
+            } catch (RabbitUnavailable e) {
+                logger.error("Rabbit is still unavailable, will try later");
+            }
+        });
     }
 }
