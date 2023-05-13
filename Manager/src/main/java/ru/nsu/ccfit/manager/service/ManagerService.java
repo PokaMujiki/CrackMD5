@@ -12,7 +12,6 @@ import ru.nsu.ccfit.manager.exception.NotMD5Hash;
 import ru.nsu.ccfit.schema.crack_hash_request.CrackHashManagerRequest;
 import ru.nsu.ccfit.schema.crack_hash_response.CrackHashWorkerResponse;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,7 +57,7 @@ public class ManagerService {
             throw new IllegalArgumentException(String.format("%d is not valid maximum length for target word", maxLength));
         }
 
-        var requestId = UUID.nameUUIDFromBytes(hash.getBytes(StandardCharsets.UTF_8));
+        var requestId = UUID.randomUUID();
         var requestIdString = requestId.toString();
 
         var managerRequest = new CrackHashManagerRequest();
