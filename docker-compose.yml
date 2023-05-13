@@ -1,10 +1,74 @@
 services:
+  mongodb1:
+    image: mongo:4
+    restart: always
+    container_name: mongodb1
+    volumes:
+      - mongodata1:/data/db
+    ports:
+      - "27017:27017"
+    entrypoint: [ "/usr/bin/mongod", "--replSet", "rsmongo", "--bind_ip_all" ]
+
+  mongodb2:
+    image: mongo:4
+    restart: always
+    container_name: mongodb2
+    volumes:
+      - mongodata2:/data/db
+    ports:
+      - "27018:27017"
+    entrypoint: [ "/usr/bin/mongod", "--replSet", "rsmongo", "--bind_ip_all" ]
+
+  mongodb3:
+    image: mongo:4
+    restart: always
+    container_name: mongodb3
+    volumes:
+      - mongodata3:/data/db
+    ports:
+      - "27019:27017"
+    entrypoint: [ "/usr/bin/mongod", "--replSet", "rsmongo", "--bind_ip_all" ]
+
+  mongosetup:
+    image: "mongo-setup"
+    build: "./mongo-setup"
+    container_name: "mongosetup"
+    depends_on:
+      - mongodb1
+    volumes:
+      - mongostatus:/data/
+
+  rabbitmq3:
+    container_name: "rabbitmq"
+    image: rabbitmq:3-management
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    ports:
+      # AMQP protocol port
+      - '5672:5672'
+      # HTTP management UI
+      - '15672:15672'
+
   manager:
     build: ./Manager
     container_name: crack-md5-manager
     ports:
       - "8080:8080"
+    environment:
+      - WORKERS_AMOUNT=${WORKERS_AMOUNT}
+    depends_on:
+      - rabbitmq3
 
   worker:
-    container_name: crack-md5-worker
     build: ./Worker
+    deploy:
+      replicas: ${WORKERS_AMOUNT}
+    depends_on:
+      - rabbitmq3
+
+volumes:
+  mongodata1:
+  mongodata2:
+  mongodata3:
+  mongostatus:
