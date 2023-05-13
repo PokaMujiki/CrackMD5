@@ -2,18 +2,17 @@ package ru.nsu.ccfit.manager.service;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.http.MediaType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-import ru.nsu.ccfit.manager.Task;
-import ru.nsu.ccfit.manager.TaskStatus;
+import ru.nsu.ccfit.manager.producer.ManagerMessageProducer;
+import ru.nsu.ccfit.manager.models.Task;
+import ru.nsu.ccfit.manager.models.TaskStatus;
 import ru.nsu.ccfit.manager.exception.NoSuchTask;
 import ru.nsu.ccfit.manager.exception.NotMD5Hash;
 import ru.nsu.ccfit.schema.crack_hash_request.CrackHashManagerRequest;
 import ru.nsu.ccfit.schema.crack_hash_response.CrackHashWorkerResponse;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,9 +21,9 @@ import java.util.regex.Pattern;
 
 @Service
 public class ManagerService {
+    @Autowired
+    private ManagerMessageProducer messageProducer;
     private static final Logger logger = LogManager.getLogger(ManagerService.class);
-    private static final int TIMEOUT = 20; // seconds
-    private static final String WORKER_CRACK_ENDPOINT = "http://worker:8081/internal/api/worker/hash/crack/task";
     private final ConcurrentHashMap<String, Task> taskStatuses = new ConcurrentHashMap<>();
     private final CrackHashManagerRequest.Alphabet alphabet = new CrackHashManagerRequest.Alphabet();
 
@@ -62,43 +61,25 @@ public class ManagerService {
         var requestId = UUID.nameUUIDFromBytes(hash.getBytes(StandardCharsets.UTF_8));
         var requestIdString = requestId.toString();
 
-        if (taskStatuses.containsKey(requestIdString) && taskStatuses.get(requestIdString).getStatus() != TaskStatus.ERROR) {
-            logger.info("Task with UUID {} is already executing and it's status is not ERROR", requestIdString);
-            return requestIdString;
-        }
-
         var managerRequest = new CrackHashManagerRequest();
         managerRequest.setHash(hash);
         managerRequest.setMaxLength(maxLength);
         managerRequest.setAlphabet(alphabet);
         managerRequest.setRequestId(requestIdString);
 
-        var client = WebClient.create(WORKER_CRACK_ENDPOINT);
-        client.post()
-                .contentType(MediaType.APPLICATION_XML)
-                .bodyValue(managerRequest)
-                .retrieve()
-                .bodyToMono(CrackHashWorkerResponse.class)
-                .timeout(Duration.ofSeconds(TIMEOUT))
-                .subscribe(
-                        response -> {
-                            logger.info("Got response from worker with task {}", requestIdString);
-                            logger.info("{} results:", requestIdString);
-                            logger.info(response.getAnswers().getWords());
-
-                            var task = taskStatuses.get(requestIdString);
-                            task.setStatus(TaskStatus.READY);
-                            task.getData().addAll(response.getAnswers().getWords());
-                        },
-                        error -> {
-                            logger.error("Error receiving response from worker {}", requestId);
-                            logger.error(error);
-                            taskStatuses.get(requestIdString).setStatus(TaskStatus.ERROR);
-                        }
-                );
-
         taskStatuses.put(requestIdString, new Task(TaskStatus.IN_PROGRESS));
 
+        messageProducer.sendMessage(managerRequest);
+
         return requestIdString;
+    }
+
+    public void processWorkerResponse(CrackHashWorkerResponse response) {
+        logger.info("Got response from worker with task {}", response.getRequestId());
+        logger.info("{} results:", response.getRequestId());
+        logger.info(response.getAnswers().getWords());
+        var task = taskStatuses.get(response.getRequestId());
+        task.setStatus(TaskStatus.READY);
+        task.getData().addAll(response.getAnswers().getWords());
     }
 }

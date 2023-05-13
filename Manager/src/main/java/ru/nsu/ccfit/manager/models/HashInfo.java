@@ -1,4 +1,4 @@
-package ru.nsu.ccfit.manager;
+package ru.nsu.ccfit.manager.models;
 
 public class HashInfo {
     private String hash;

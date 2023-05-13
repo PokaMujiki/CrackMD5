@@ -4,15 +4,20 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.paukov.combinatorics3.Generator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import ru.nsu.ccfit.schema.crack_hash_request.CrackHashManagerRequest;
 import ru.nsu.ccfit.schema.crack_hash_response.CrackHashWorkerResponse;
+import ru.nsu.ccfit.worker.producer.WorkerMessageProducer;
 
 import java.util.ArrayList;
 
 @Service
 public class WorkerService {
     private static final Logger logger = LogManager.getLogger(WorkerService.class);
+
+    @Autowired
+    WorkerMessageProducer messageProducer;
     public CrackHashWorkerResponse crackHash(CrackHashManagerRequest taskInfo) {
         var words = new ArrayList<String>();
 

@@ -1,4 +1,4 @@
-package ru.nsu.ccfit.manager;
+package ru.nsu.ccfit.manager.models;
 
 import java.util.ArrayList;
 import java.util.List;

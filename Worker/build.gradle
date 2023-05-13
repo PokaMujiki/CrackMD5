@@ -33,6 +33,11 @@ dependencies {
     testImplementation('org.springframework.boot:spring-boot-starter-test')
     implementation 'org.apache.logging.log4j:log4j-core:2.16.0'
     implementation 'org.apache.logging.log4j:log4j-api:2.16.0'
+    implementation 'com.rabbitmq:amqp-client:5.12.0'
+    implementation 'org.springframework.amqp:spring-rabbit:2.3.10'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.12.5'
 }
 
 sourceSets {
