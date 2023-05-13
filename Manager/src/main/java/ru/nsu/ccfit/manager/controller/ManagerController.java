@@ -6,8 +6,9 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import ru.nsu.ccfit.manager.HashInfo;
-import ru.nsu.ccfit.manager.Task;
+import ru.nsu.ccfit.manager.models.HashInfo;
+import ru.nsu.ccfit.manager.models.ManagerClientResponse;
+import ru.nsu.ccfit.manager.models.Task;
 import ru.nsu.ccfit.manager.exception.NoSuchTask;
 import ru.nsu.ccfit.manager.exception.NotMD5Hash;
 import ru.nsu.ccfit.manager.service.ManagerService;
@@ -21,10 +22,10 @@ public class ManagerController {
     ManagerService managerService;
 
     @PostMapping("/crack")
-    public ResponseEntity<String> crackHash(@RequestBody HashInfo hash) {
+    public ResponseEntity<?> crackHash(@RequestBody HashInfo hash) {
         try {
             logger.info("Received request for following hash crack: {}", hash.getHash());
-            return ResponseEntity.ok(managerService.crackHash(hash.getHash(), hash.getMaxLength()));
+            return ResponseEntity.ok(new ManagerClientResponse(managerService.crackHash(hash.getHash(), hash.getMaxLength())));
         }
         catch (NotMD5Hash | IllegalArgumentException e) {
             logger.warn("Given hash is not in MD-5 format or maxLength is not valid");
