@@ -50,11 +50,7 @@ public class ManagerService {
         this.activeRequestsRepository = activeRequestsRepository;
         this.taskRepository = taskRepository;
 
-        alphabet.getSymbols().addAll(Arrays.asList(
-                "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-                "a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
-                "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",
-                "u", "v", "w", "x", "y", "z"));
+        alphabet.getSymbols().addAll(Arrays.asList("0123456789abcdefghijklmnopqrstuvwxyz".split("")));
 
         try {
             var workersAmountString =  System.getenv(WORKERS_AMOUNT_ENV_VAR_NAME);
@@ -129,7 +125,6 @@ public class ManagerService {
             }
         }
 
-        // todo change logic
         var task = new Task(TaskStatus.IN_PROGRESS);
         taskRepository.insert(requestIdString, task);
 
